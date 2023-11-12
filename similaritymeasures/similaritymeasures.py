@@ -1,6 +1,10 @@
 from __future__ import division
+
+import numba
 import numpy as np
 from scipy.spatial import distance
+from euclidian_cdist import eucl_opt
+# from numba.np.extensions import cross2d
 # MIT License
 #
 # Copyright (c) 2018,2019 Charles Jekel
@@ -22,8 +26,7 @@ from scipy.spatial import distance
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
-
+@numba.njit
 def poly_area(x, y):
     r"""
     A function that computes the polygonal area via the shoelace formula.
@@ -57,6 +60,7 @@ def poly_area(x, y):
     return 0.5*np.abs(np.dot(x, np.roll(y, 1))-np.dot(y, np.roll(x, 1)))
 
 
+@numba.njit
 def is_simple_quad(ab, bc, cd, da):
     r"""
     Returns True if a quadrilateral is simple
@@ -84,21 +88,50 @@ def is_simple_quad(ab, bc, cd, da):
         True if quadrilateral is simple, False if complex
     """
     #   Compute all four cross products
-    temp0 = np.cross(ab, bc)
-    temp1 = np.cross(bc, cd)
-    temp2 = np.cross(cd, da)
-    temp3 = np.cross(da, ab)
-    cross = np.array([temp0, temp1, temp2, temp3])
+    # temp0 = cross2d(ab, bc)
+    # temp1 = cross2d(bc, cd)
+    # temp2 = cross2d(cd, da)
+    # temp3 = cross2d(da, ab)
+    
+    # temp0 = cross2d(bc, ab)
+    # temp1 = cross2d(cd, bc)
+    # temp2 = cross2d(da, cd)
+    # temp3 = cross2d(ab, da)
+
+    # temp0 = np.cross(ab.reshape(1,-1), bc.reshape(1,-1))
+    # temp1 = np.cross(bc.reshape(1,-1), cd.reshape(1,-1))
+    # temp2 = np.cross(cd.reshape(1,-1), da.reshape(1,-1))
+    # temp3 = np.cross(da.reshape(1,-1), ab.reshape(1,-1))
+    
+    # temp0 = ab[0]*bc[1] - ab[1]*bc[0]
+    # temp1 = bc[0]*cd[1] - bc[1]*cd[0]
+    # temp2 = cd[0]*da[1] - cd[1]*da[0]
+    # temp3 = da[0]*ab[1] - da[1]*ab[0]
+    
+    temp0 = np.abs(ab[1]*bc[0] - ab[0]*bc[1])
+    temp1 = np.abs(bc[1]*cd[0] - bc[0]*cd[1])
+    temp2 = np.abs(cd[1]*da[0] - cd[0]*da[1])
+    temp3 = np.abs(da[1]*ab[0] - da[0]*ab[1])
+    
+    cross = np.zeros(4)
+    cross[0] = temp0
+    cross[1] = temp1
+    cross[2] = temp2
+    cross[3] = temp3
+    # cross = np.array([temp0, temp1, temp2, temp3])
     #   See that majority of cross products is non-positive or non-negative
     #   They don't necessarily need to lie in the same 'Z' direction
-    if sum(cross > 0) < sum(cross < 0):
+    a = cross > 0
+    b = cross < 0
+    if np.sum(a) < np.sum(b):
         crossTF = cross <= 0
     else:
         crossTF = cross >= 0
-    return sum(crossTF) > 2
+    return np.sum(crossTF) > 2
 
 
-def makeQuad(x, y):
+@numba.njit
+def makeQuad(x:np.ndarray, y:np.ndarray):
     r"""
     Calculate the area from the x and y locations of a quadrilateral
 
@@ -130,10 +163,10 @@ def makeQuad(x, y):
     # I need to get the values of the cross products of ABxBC, BCxCD, CDxDA,
     # DAxAB, thus I need to create the following arrays AB, BC, CD, DA
 
-    AB = [x[1]-x[0], y[1]-y[0]]
-    BC = [x[2]-x[1], y[2]-y[1]]
-    CD = [x[3]-x[2], y[3]-y[2]]
-    DA = [x[0]-x[3], y[0]-y[3]]
+    AB = np.array([x[1]-x[0], y[1]-y[0]])
+    BC = np.array([x[2]-x[1], y[2]-y[1]])
+    CD = np.array([x[3]-x[2], y[3]-y[2]])
+    DA = np.array([x[0]-x[3], y[0]-y[3]])
 
     isQuad = is_simple_quad(AB, BC, CD, DA)
 
@@ -141,10 +174,10 @@ def makeQuad(x, y):
         # attempt to rearrange the first two points
         x[1], x[0] = x[0], x[1]
         y[1], y[0] = y[0], y[1]
-        AB = [x[1]-x[0], y[1]-y[0]]
-        BC = [x[2]-x[1], y[2]-y[1]]
-        CD = [x[3]-x[2], y[3]-y[2]]
-        DA = [x[0]-x[3], y[0]-y[3]]
+        AB = np.array([x[1]-x[0], y[1]-y[0]])
+        BC = np.array([x[2]-x[1], y[2]-y[1]])
+        CD = np.array([x[3]-x[2], y[3]-y[2]])
+        DA = np.array([x[0]-x[3], y[0]-y[3]])
 
         isQuad = is_simple_quad(AB, BC, CD, DA)
 
@@ -153,10 +186,10 @@ def makeQuad(x, y):
             # swap the second and third points
             x[2], x[0], x[1] = x[0], x[1], x[2]
             y[2], y[0], y[1] = y[0], y[1], y[2]
-            AB = [x[1]-x[0], y[1]-y[0]]
-            BC = [x[2]-x[1], y[2]-y[1]]
-            CD = [x[3]-x[2], y[3]-y[2]]
-            DA = [x[0]-x[3], y[0]-y[3]]
+            AB = np.array([x[1]-x[0], y[1]-y[0]])
+            BC = np.array([x[2]-x[1], y[2]-y[1]])
+            CD = np.array([x[3]-x[2], y[3]-y[2]])
+            DA = np.array([x[0]-x[3], y[0]-y[3]])
 
             isQuad = is_simple_quad(AB, BC, CD, DA)
 
@@ -164,7 +197,7 @@ def makeQuad(x, y):
     area = poly_area(x, y)
     return area
 
-
+@numba.njit
 def get_arc_length(dataset):
     r"""
     Obtain arc length distances between every point in 2-D space
@@ -191,19 +224,22 @@ def get_arc_length(dataset):
     locations of the data points should be dataset[:, 1]
     """
     #   split the dataset into two discrete datasets, each of length m-1
-    m = len(dataset)
+    # m = len(dataset)
+    m=dataset.shape[0]
     a = dataset[0:m-1, :]
     b = dataset[1:m, :]
     #   use scipy.spatial to compute the euclidean distance
-    dataDistance = distance.cdist(a, b, 'euclidean')
+    # dataDistance = distance.cdist(a, b, 'euclidean')
+    dataDistance = eucl_opt(a,b)
     #   this returns a matrix of the euclidean distance between all points
     #   the arc length is simply the sum of the diagonal of this matrix
-    arcLengths = np.diagonal(dataDistance)
-    arcLength = sum(arcLengths)
+    # arcLengths = np.diagonal(dataDistance)
+    arcLengths = np.diag(dataDistance)
+    arcLength = np.sum(arcLengths)
     return arcLength, arcLengths
 
-
-def area_between_two_curves(exp_data, num_data):
+@numba.njit
+def area_between_two_curves(exp_data:np.ndarray, num_data:np.ndarray):
     r"""
     Calculates the area between two curves.
 
@@ -253,8 +289,8 @@ def area_between_two_curves(exp_data, num_data):
     # then you can calculate the area as
     # area = area_between_two_curves(exp_data, num_data)
 
-    n_exp = len(exp_data)
-    n_num = len(num_data)
+    n_exp = exp_data.shape[0]
+    n_num = num_data.shape[0]
 
     # the length of exp_data must be larger than the length of num_data
     if n_exp < n_num:
@@ -271,7 +307,8 @@ def area_between_two_curves(exp_data, num_data):
     # let's find the largest gap between point the num_data, and then
     # linearally interpolate between these points such that the num_data
     # becomes the same length as the exp_data
-    for i in range(0, n_exp-n_num):
+    # for i in range(0, n_exp-n_num):
+    for i in np.arange(0,n_exp-n_num):
         a = num_data[0:n_num-1, 0]
         b = num_data[1:n_num, 0]
         nIndex = np.argmax(arcsnum_data)
@@ -283,23 +320,33 @@ def area_between_two_curves(exp_data, num_data):
         else:
             newY = np.interp(newX, [b[nIndex], a[nIndex]],
                              [num_data[nIndex+1, 1], num_data[nIndex, 1]])
-        num_data = np.insert(num_data, nIndex+1, newX, axis=0)
-        num_data[nIndex+1, 1] = newY
+
+        new = np.zeros((num_data.shape[0]+1,2))
+        new[:nIndex+1] = num_data[:nIndex+1]
+        new[nIndex+2:] = num_data[nIndex+1:]
+        
+        new[nIndex+1,0] = newX
+        new[nIndex+1, 1] = newY
+        num_data = new
 
         _, arcsnum_data = get_arc_length(num_data)
-        n_num = len(num_data)
+        # n_num = len(num_data)
+        n_num = num_data.shape[0]
 
     # Calculate the quadrilateral area, by looping through all of the quads
-    area = []
-    for i in range(1, n_exp):
-        tempX = [exp_data[i-1, 0], exp_data[i, 0], num_data[i, 0],
-                 num_data[i-1, 0]]
-        tempY = [exp_data[i-1, 1], exp_data[i, 1], num_data[i, 1],
-                 num_data[i-1, 1]]
-        area.append(makeQuad(tempX, tempY))
+    # area = []
+    area = np.zeros(n_exp-1)
+    for i in np.arange(1, n_exp):
+        tempX = np.asarray([exp_data[i-1, 0], exp_data[i, 0], num_data[i, 0],
+                 num_data[i-1, 0]])
+        tempY = np.asarray([exp_data[i-1, 1], exp_data[i, 1], num_data[i, 1],
+                 num_data[i-1, 1]])
+
+        # area.append(makeQuad(tempX, tempY))
+        area[i-1]=makeQuad(tempX,tempY)
     return np.sum(area)
 
-
+@numba.njit
 def get_length(x, y, norm_seg_length=True):
     r"""
     Compute arc lengths of an x y curve.
@@ -331,7 +378,8 @@ def get_length(x, y, norm_seg_length=True):
     >>> le, le_total, le_cum = get_length(x, y)
 
     """
-    n = len(x)
+    # n = len(x)
+    n = x.shape[0]
 
     if norm_seg_length:
         xmax = np.max(np.abs(x))
@@ -351,12 +399,12 @@ def get_length(x, y, norm_seg_length=True):
     le[0] = 0.0
     l_sum = np.zeros(n)
     l_sum[0] = 0.0
-    for i in range(0, n-1):
+    for i in np.arange(0, n-1):
         le[i+1] = np.sqrt((((x[i+1]-x[i])/xmax)**2)+(((y[i+1]-y[i])/ymax)**2))
         l_sum[i+1] = l_sum[i]+le[i+1]
     return le, np.sum(le), l_sum
 
-
+@numba.njit
 def curve_length_measure(exp_data, num_data):
     r"""
     Compute the curve length based distance between two curves.
@@ -417,10 +465,11 @@ def curve_length_measure(exp_data, num_data):
     xmean = np.mean(x_e)
     ymean = np.mean(y_e)
 
-    n = len(x_e)
+    # n = len(x_e)
+    n = x_e.shape[0]
 
     r_sq = np.zeros(n)
-    for i in range(0, n):
+    for i in np.arange(0, n):
         lieq = le_sum[i]*(lc_nj/le_nj)
         xtemp = np.interp(lieq, lc_sum, x_c)
         ytemp = np.interp(lieq, lc_sum, y_c)
@@ -430,6 +479,21 @@ def curve_length_measure(exp_data, num_data):
     return np.sqrt(np.sum(r_sq))
 
 
+
+@numba.njit(fastmath=True)
+def minkowski_numba(A:np.ndarray,B:np.ndarray,p:int)->np.ndarray:
+    assert B.shape[1]==A.shape[1]
+
+    out=np.empty((A.shape[0],B.shape[0]),dtype=A.dtype)
+    for i in numba.prange(A.shape[0]):
+        for j in range(B.shape[0]):
+            acc=0
+            for k in range(A.shape[1]):
+                acc+=(A[i,k]-B[j,k])**p # type: ignore
+            out[i,j]=acc**(1./p)
+    return out
+
+@numba.njit(fastmath=True)    
 def frechet_dist(exp_data, num_data, p=2):
     r"""
     Compute the discrete Frechet distance
@@ -490,23 +554,28 @@ def frechet_dist(exp_data, num_data, p=2):
     >>> df = frechet_dist(exp_data, num_data)
 
     """
-    n = len(exp_data)
-    m = len(num_data)
-    c = distance.cdist(exp_data, num_data, metric='minkowski', p=p)
+    n = (exp_data).shape[0]
+    m = (num_data).shape[0]
+    # c = distance.cdist(exp_data, num_data, metric='minkowski', p=p)
+    c = minkowski_numba(exp_data,num_data,p=p)
     ca = np.ones((n, m))
     ca = np.multiply(ca, -1)
     ca[0, 0] = c[0, 0]
-    for i in range(1, n):
+    for i in np.arange(1, n):
         ca[i, 0] = max(ca[i-1, 0], c[i, 0])
-    for j in range(1, m):
+    for j in np.arange(1, m):
         ca[0, j] = max(ca[0, j-1], c[0, j])
-    for i in range(1, n):
-        for j in range(1, m):
-            ca[i, j] = max(min(ca[i-1, j], ca[i, j-1], ca[i-1, j-1]),
-                           c[i, j])
+    for i in np.arange(1, n):
+        for j in np.arange(1, m):
+            a = np.empty(3)
+            a[0]=ca[i-1, j]
+            a[1]=ca[i, j-1]
+            a[2]=ca[i-1, j-1]
+            # a = np.array([ca[i-1, j], ca[i, j-1], ca[i-1, j-1]])
+            ca[i, j] = np.maximum(np.min(a),c[i, j])
     return ca[n-1, m-1]
 
-
+@numba.njit(fastmath=True)
 def normalizeTwoCurves(x, y, w, z):
     """
     Normalize two curves for PCM method.
@@ -560,7 +629,7 @@ def normalizeTwoCurves(x, y, w, z):
     etaP = (z - minY) / (maxY - minY)
     return xi, eta, xiP, etaP
 
-
+@numba.njit(fastmath=True)    
 def pcm(exp_data, num_data, norm_seg_length=False):
     """
     Compute the Partial Curve Mapping area.
@@ -647,7 +716,8 @@ def pcm(exp_data, num_data, norm_seg_length=False):
         xi2 = xi1OLD.copy()
         eta2 = eta1OLD.copy()
 
-    n_sum = len(le_sum)
+    # n_sum = len(le_sum)
+    n_sum = le_sum.shape[0]
 
     min_offset = 0.0
     max_offset = le_nj - lc_nj
@@ -655,17 +725,20 @@ def pcm(exp_data, num_data, norm_seg_length=False):
     # make sure the curves aren't the same length
     # if they are the same length, don't loop 200 times
     if min_offset == max_offset:
-        offsets = [min_offset]
+        # offsets = [min_offset]
+        offsets = np.zeros(1)
+        offsets[0] = min_offset
         pcm_dists = np.zeros(1)
     else:
         offsets = np.linspace(min_offset, max_offset, 200)
         pcm_dists = np.zeros(200)
 
-    for i, offset in enumerate(offsets):
+    # for i, offset in enumerate(offsets):
+    for i in np.arange(offsets.shape[0]):
         # create linear interpolation model for num_data based on arc length
         # evaluate linear interpolation model based on xi and eta of exp data
-        xitemp = np.interp(le_sum+offset, lc_sum, xi2)
-        etatemp = np.interp(le_sum+offset, lc_sum, eta2)
+        xitemp = np.interp(le_sum+offsets[i], lc_sum, xi2)
+        etatemp = np.interp(le_sum+offsets[i], lc_sum, eta2)
 
         d = np.sqrt((eta1-etatemp)**2 + (xi1-xitemp)**2)
         d1 = d[:-1]
